@@ -3,5 +3,4 @@ streamlit
 google-generativeai
 pypdf
 gtts
-io
-PIL
+pillow
