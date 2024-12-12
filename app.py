@@ -1,11 +1,25 @@
-import gradio as gr
+import streamlit as st
 import google.generativeai as genai
 import time
 
-# Define a placeholder variable for the API key
-GOOGLE_API_KEY = None
+try:
+    import google.generativeai as genai
+except ImportError:
+    st.error("Please install `google-generativeai` library using `pip install google-generativeai`.")
 
-# Transform Gradio history to Gemini format
+# Sidebar for API Key input and navigation
+with st.sidebar:
+    st.title("Navigation")
+    tabs = st.radio("Select an option", ["🏠 Home", "📝 Cube Solver"])
+
+    api_key = st.text_input("Google API Key", type="password")
+
+# Initialize session states for handling actions
+if "history" not in st.session_state:
+    st.session_state["history"] = []
+if "chat" not in st.session_state:
+    st.session_state["chat"] = None
+
 def transform_history(history, system_prompt):
     new_history = []
     new_history.append({"parts": [{"text": system_prompt}], "role": "user"})
@@ -14,69 +28,55 @@ def transform_history(history, system_prompt):
         new_history.append({"parts": [{"text": chat[1]}], "role": "model"})
     return new_history
 
-# Function to handle API key input
-def set_api_key(key):
-    global GOOGLE_API_KEY
-    GOOGLE_API_KEY = key
-    genai.configure(api_key=GOOGLE_API_KEY)
-    return "API Key Set Successfully ✅"
+# Main Home Tab
+if tabs == "🏠 Home":
+    st.title("🐍 Cube Solver")
+    st.write("""
+        Welcome to Cube Solver! 
+        Provide your cube case and get the algorithm to solve it.
+    """)
 
-# Define the chat model
-def initialize_chat_model():
-    if not GOOGLE_API_KEY:
-        return None
-    model = genai.GenerativeModel('gemini-1.5-flash-latest')
-    return model.start_chat(history=[])
+# Cube Solver Tab
+elif tabs == "📝 Cube Solver":
+    st.title("📝 Cube Solver")
+    if not api_key:
+        st.warning("Please enter your Google API Key in the sidebar.")
+    else:
+        # Configure Google Gemini AI
+        genai.configure(api_key=api_key)
+        if st.session_state["chat"] is None:
+            model = genai.GenerativeModel('gemini-1.5-flash-latest')
+            st.session_state["chat"] = model.start_chat(history=[])
 
-chat = None  # Initialize chat variable globally
+        message = st.text_input("Enter your cube case (for example OLL 50)", key="message_input")
+        system_prompt = """
+        you are a cubing algorithm fetcher you will give the user the cubing algorithm to the case they give you and respond in no more than 150 words make sure that the algorithm you give them is written with cubing notations for example OLL 50
+        r' U r2 U' r2 U' r2 U r' also make sure the algorithms are correct also this is only for 3 by 3 cubes Here Are all of the oll cases so you don't get confused : 
+        [Include your list of algorithms here]
+        """
 
-def response(message, history):
-    global chat
-    if chat is None:
-        chat = initialize_chat_model()
-        if chat is None:
-            yield "Please enter a valid API Key in the sidebar before proceeding!"
-            return
+        if st.button("Get Algorithm"):
+            try:
+                chat = st.session_state["chat"]
+                chat.history = transform_history(st.session_state["history"], system_prompt)
+                response = chat.send_message(message)
+                response.resolve()
 
-    # System prompt for Cube Bot
-    system_prompt = """
-    you are a cubing algorithm fetcher you will give the user the cubing algorithm to the case they give you...
-    [Truncated system prompt for brevity; replace with full prompt in implementation]
-    """
-    chat.history = transform_history(history, system_prompt)
-    response = chat.send_message(message)
-    response.resolve()
+                algorithm = response.text
+                st.session_state["history"].append((message, algorithm))
 
-    # Display the response character by character
-    for i in range(len(response.text)):
-        time.sleep(0.005)
-        yield response.text[: i + 20]
+                st.write("### Response")
+                st.write(algorithm)
 
-# Gradio UI
-with gr.Blocks() as app:
-    with gr.Row():
-        with gr.Column(scale=3):
-            chat_interface = gr.ChatInterface(
-                response,
-                title="Cube_Bot.io",
-                textbox=gr.Textbox(
-                    placeholder="What case do you need help solving? (for example OLL 50)"
-                ),
-                retry_btn=None,
-            )
-        with gr.Column(scale=1):
-            with gr.Row():
-                api_key_sidebar = gr.Textbox(
-                    label="Enter Google API Key in Sidebar",
-                    placeholder="Your API Key here",
-                    type="password",
-                )
-                api_status_sidebar = gr.Textbox(
-                    label="Status", interactive=False, value="API Key Required"
-                )
-                set_key_button = gr.Button("Set API Key")
-                set_key_button.click(
-                    set_api_key, inputs=api_key_sidebar, outputs=api_status_sidebar
-                )
+                st.write("### History")
+                for i, (user_msg, bot_msg) in enumerate(st.session_state["history"]):
+                    st.write(f"**User:** {user_msg}")
+                    st.write(f"**Bot:** {bot_msg}")
 
-app.launch(debug=True)
+            except Exception as e:
+                st.error(f"Error during translation: {e}")
+
+        if st.button("Clear History"):
+            st.session_state["history"] = []
+
+# Optionally, you can have a placeholder for the list of algorithms and replace [Include your list of algorithms here] with the actual algorithms
